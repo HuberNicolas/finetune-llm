@@ -1,0 +1,122 @@
+"""
+config.yaml - Konfigurationsdatei für das Legionär Scrum Master Projekt
+
+Diese Datei zentalisiert alle Einstellungen für:
+- Modell-Auswahl
+- Training Hyperparameter
+- Inference Einstellungen
+- Deployment-Optionen
+"""
+
+# ============================================================================
+# MODELL EINSTELLUNGEN
+# ============================================================================
+modell:
+  # Basis-Modell von HuggingFace
+  basis_modell_id: "mistralai/Mistral-7B-Instruct-v0.3"
+
+  # Alternative Modelle:
+  # - "meta-llama/Llama-2-7b-chat-hf" (Meta Llama)
+  # - "NousResearch/Nous-Hermes-2-Mistral-7B-DPO" (Nous Hermes)
+
+  # Lokale Pfade
+  lora_adapter_pfad: "./models/legionaer-final"
+  deployed_modell_pfad: "./models/legionaer-deployed"
+
+# ============================================================================
+# TRAINING KONFIGURATION
+# ============================================================================
+training:
+  # LoRA-Parameter
+  lora:
+    rank: 16                           # Größe der LoRA-Adapter
+    alpha: 32                          # Scaling-Faktor
+    dropout: 0.05                      # Overfitting-Prevention
+    target_modules: ["q_proj", "v_proj"]  # Welche Layer trainieren?
+
+  # Training-Loop
+  num_epochs: 3                        # Wie oft durchs Datensatz?
+  batch_size: 4                        # Beispiele pro GPU
+  gradient_accumulation_steps: 2       # Effektive batch_size = 4 * 2 = 8
+  learning_rate: 0.0002               # Wie große Lernschritte?
+  warmup_ratio: 0.1                   # Erst 10% aufwärmen
+  weight_decay: 0.01                  # L2 Regularisierung
+
+  # Checkpoint-Einstellungen
+  save_steps: 100                      # Speichere alle 100 Schritte
+  logging_steps: 10                    # Logs alle 10 Schritte
+  save_total_limit: 3                 # Max 3 alte Checkpoints
+
+  # Datensatz
+  datensatz_pfad: "data/legionaer_training_data.json"
+  max_seq_length: 512                 # Max Sequenz-Länge
+
+# ============================================================================
+# QUANTISIERUNG (RAM-Sparen)
+# ============================================================================
+quantisierung:
+  # 4-bit Quantisierung = weniger VRAM benötigt
+  use_4bit: true
+
+  # Optionen:
+  # true: 4-bit (4-5 GB VRAM) - für T4 Kaggle GPU
+  # false: float16 (14 GB VRAM) - für größere GPUs
+
+  # 4-bit Details
+  quant_type: "nf4"                   # NormalFloat4 beste Qualität
+  compute_dtype: "float16"             # Rechne in float16
+
+# ============================================================================
+# INFERENCE EINSTELLUNGEN
+# ============================================================================
+inference:
+  # Text-Generation Parameter
+  max_new_tokens: 256                  # Max Ausgabe-Länge
+  temperature: 0.7                     # Kreativität (0=deterministisch, 1=kreativ)
+  top_p: 0.9                          # Nucleus Sampling
+  do_sample: true                      # Sampling statt Greedy
+
+  # Prompt-Format (muss Mistral-Format sein)
+  prompt_template: "<s>[INST] {frage} [/INST]"
+
+# ============================================================================
+# DEPLOYMENT OPTIONEN
+# ============================================================================
+deployment:
+  # HuggingFace Hub
+  huggingface:
+    enabled: true
+    repo_name: "legionaer-scrum-master"
+    repo_type: "model"
+    organization: ""  # Optional: org name
+
+  # Ollama (lokales Deployment)
+  ollama:
+    enabled: false
+    model_name: "legionaer"
+
+  # FastAPI Server
+  fastapi:
+    enabled: false
+    host: "0.0.0.0"
+    port: 8000
+    workers: 1
+
+# ============================================================================
+# LOGGING & MONITORING
+# ============================================================================
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# ============================================================================
+# ENVIRONMENT
+# ============================================================================
+environment:
+  # GPU Einstellungen
+  cuda_visible_devices: "0"            # Welche GPU nutzen? (0=erste)
+  use_gpu: true
+
+  # HuggingFace
+  hf_token: ${HF_TOKEN}               # Von Environment-Variable lesen
+  offline_mode: false

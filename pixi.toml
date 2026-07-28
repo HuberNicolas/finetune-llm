@@ -1,0 +1,29 @@
+[workspace]
+name = "finetune-legionaer"
+version = "0.1.0"
+description = "Fine-Tuning eines Mistral-Modells für einen römischen Legionär Scrum Master"
+authors = ["Nicolas Huber <nicolas@example.com>"]
+channels = ["conda-forge"]
+platforms = ["linux-64", "win-64"]
+
+[dependencies]
+python = ">=3.10,<3.12"
+pip = "*"
+
+[pypi-dependencies]
+# PyTorch & ML Libraries (via pip, nicht conda!)
+torch = ">=2.0.0"
+numpy = ">=1.24"
+transformers = ">=4.35.0"
+huggingface-hub = ">=0.17.0"
+bitsandbytes = ">=0.41.0"
+peft = ">=0.4.0"
+trl = ">=0.7.0"
+datasets = ">=2.14.0"
+tqdm = ">=4.66.0"
+python-dotenv = ">=1.0.0"
+pyyaml = ">=6.0"
+jupyter = ">=1.0.0"
+ipython = ">=8.15.0"
+matplotlib = ">=3.8.0"
+pandas = ">=2.0.0"
