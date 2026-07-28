@@ -1,0 +1,144 @@
+# ============================================================================
+# PYTHON & ENVIRONMENTS
+# ============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.installed.cfg
+*.egg
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual Environments
+env/
+venv/
+ENV/
+.venv
+.venv/
+.pixi
+.pixi.lock
+
+# ============================================================================
+# IDEs & Editors
+# ============================================================================
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+*~
+.sublime-project
+.sublime-workspace
+
+# ============================================================================
+# JUPYTER NOTEBOOKS
+# ============================================================================
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+.jupyter_cache/
+*_checkpoint.ipynb
+
+# ============================================================================
+# LLM FINE-TUNING SPEZIFISCH
+# ============================================================================
+# Trainierte Modelle (GROSSE DATEIEN!)
+models/
+checkpoints/
+output/
+
+# Trainingsdaten (nur JSON committen, nicht .bin/.safetensors)
+data/*.bin
+data/*.safetensors
+data/*.pt
+data/*.pth
+data/*.ckpt
+
+# HuggingFace Cache
+.cache/
+huggingface/
+runs/
+wandb/
+
+# ============================================================================
+# UMGEBUNGS-KONFIGURATION
+# ============================================================================
+.env
+.env.local
+.env.*.local
+secrets.json
+*.secret
+
+# ============================================================================
+# OS-SPEZIFISCH
+# ============================================================================
+.DS_Store
+Thumbs.db
+*.log
+logs/
+
+# ============================================================================
+# GROSSE DATEIEN (Binary Models)
+# ============================================================================
+*.bin
+*.safetensors
+*.h5
+*.ckpt
+*.pt
+*.pth
+*.msgpack
+*.onnx
+
+# ============================================================================
+# KAGGLE & CLOUD SPEZIFISCH
+# ============================================================================
+.kaggle/
+kaggle_secrets.json
+*.csv  # Trainings-CSVs (falls vorhanden)
+
+# ============================================================================
+# DEVELOPMENT & TESTING
+# ============================================================================
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+.hypothesis/
+*.profile
+
+# Training Artifacts
+runs/
+outputs/
+logs/
+checkpoints/
+
+# Environment
+.env
+.env.local
+*.pem
+*.key
+
+# OS
+.DS_Store
+Thumbs.db
+
+# HuggingFace Cache
+~/.cache/huggingface/
+
+# Kaggle
+.kaggle/
+*.csv
