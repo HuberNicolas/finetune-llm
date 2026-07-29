@@ -106,7 +106,7 @@ logs/
 # ============================================================================
 # KAGGLE & CLOUD SPEZIFISCH
 # ============================================================================
-.kaggle/
+.kaggle/                       # Kaggle API Credentials (NIEMALS committen!)
 kaggle_secrets.json
 *.csv  # Trainings-CSVs (falls vorhanden)
 
