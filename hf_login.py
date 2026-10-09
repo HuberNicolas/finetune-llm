@@ -5,9 +5,10 @@ Mit diesem Script kannst du dich bei HuggingFace anmelden
 und dein trainiertes Modell uploaden.
 """
 
-import os
 from pathlib import Path
-from huggingface_hub import login, HfApi, create_repo
+
+from huggingface_hub import HfApi, login
+
 
 def login_hf():
     """Login zu HuggingFace"""
@@ -28,9 +29,7 @@ def login_hf():
 
 
 def upload_model_zu_hf(
-    modell_pfad: str = "./models/legionaer-final",
-    repo_name: str = "legionaer-scrum-master",
-    repo_type: str = "model"
+    modell_pfad: str = "./models/legionaer-final", repo_name: str = "legionaer-scrum-master", repo_type: str = "model"
 ):
     """
     Upload dein trainiertes Modell zu HuggingFace Hub.
@@ -55,6 +54,7 @@ def upload_model_zu_hf(
 
         # Token von credentials auslesen
         from huggingface_hub import get_token
+
         token = get_token()
 
         if not token:
@@ -76,15 +76,15 @@ def upload_model_zu_hf(
             token=token,
         )
 
-        print(f"\n✅ Upload erfolgreich!")
+        print("\n✅ Upload erfolgreich!")
         print(f"   Model URL: https://huggingface.co/{repo_id}")
-        print(f"\n💻 So nutzt jemand das Modell:")
-        print(f"   from transformers import AutoTokenizer, AutoModelForCausalLM")
-        print(f"   from peft import PeftModel")
-        print(f"   base_model_id = 'mistralai/Mistral-7B-Instruct-v0.3'")
+        print("\n💻 So nutzt jemand das Modell:")
+        print("   from transformers import AutoTokenizer, AutoModelForCausalLM")
+        print("   from peft import PeftModel")
+        print("   base_model_id = 'mistralai/Mistral-7B-Instruct-v0.3'")
         print(f"   lora_model_id = '{repo_id}'")
-        print(f"   model = AutoModelForCausalLM.from_pretrained(base_model_id)")
-        print(f"   model = PeftModel.from_pretrained(model, lora_model_id)")
+        print("   model = AutoModelForCausalLM.from_pretrained(base_model_id)")
+        print("   model = PeftModel.from_pretrained(model, lora_model_id)")
 
         return True
 

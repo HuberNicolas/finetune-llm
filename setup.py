@@ -4,9 +4,8 @@ setup.py - Projekt-Setup & Konfiguration
 Nutze dieses Script um das Projekt richtig zu starten.
 """
 
-import os
-import sys
 from pathlib import Path
+
 
 def erstelle_verzeichnisse():
     """Erstelle notwendige Verzeichnisse"""

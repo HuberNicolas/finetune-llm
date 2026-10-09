@@ -11,19 +11,18 @@ Mit nur den trainierten LoRA-Adaptern können wir:
 Der römische Legionär Scrum Master ist geboren! 🦅
 """
 
-import torch
-from pathlib import Path
-from typing import Optional
 import logging
+from pathlib import Path
+
+import torch
+from peft import PeftModel
 
 # HuggingFace Imports
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     BitsAndBytesConfig,
-    pipeline,
 )
-from peft import PeftModel
 
 # ============================================================================
 # LOGGING
@@ -41,6 +40,7 @@ LORA_MODELL_ID = "./models/legionaer-final"
 # ============================================================================
 # MODELL LADEN - MIT LORA ADAPTERN
 # ============================================================================
+
 
 def lade_modell_mit_lora(
     basis_modell_id: str = MODELL_ID,
@@ -113,6 +113,7 @@ def lade_modell_mit_lora(
 # INFERENCE - GENERIERE ANTWORTEN
 # ============================================================================
 
+
 def generiere_antwort(
     model,
     tokenizer,
@@ -154,7 +155,7 @@ def generiere_antwort(
         )
 
     # Dekodiere nur die neu generierten Tokens (ohne den Prompt)
-    neue_tokens = outputs[0][inputs["input_ids"].shape[1]:]
+    neue_tokens = outputs[0][inputs["input_ids"].shape[1] :]
     antwort = tokenizer.decode(neue_tokens, skip_special_tokens=True).strip()
 
     return antwort
@@ -163,6 +164,7 @@ def generiere_antwort(
 # ============================================================================
 # INTERAKTIVE TESTING SESSION
 # ============================================================================
+
 
 def starte_chat_session(model, tokenizer):
     """
@@ -192,7 +194,7 @@ def starte_chat_session(model, tokenizer):
             continue
 
         # Generiere Antwort
-        print(f"\n🦅 Marcus denkt...\n")
+        print("\n🦅 Marcus denkt...\n")
         antwort = generiere_antwort(model, tokenizer, frage)
         print(f"🦅 Marcus: {antwort}\n")
 
@@ -200,6 +202,7 @@ def starte_chat_session(model, tokenizer):
 # ============================================================================
 # BATCH TESTING - VORDEFINIERTE FRAGEN
 # ============================================================================
+
 
 def teste_vordefinierte_fragen(model, tokenizer):
     """
@@ -222,10 +225,10 @@ def teste_vordefinierte_fragen(model, tokenizer):
     print("=" * 70)
 
     for i, frage in enumerate(test_fragen, 1):
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print(f"Test {i}/{len(test_fragen)}")
         print(f"❓ Frage: {frage}")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
 
         antwort = generiere_antwort(model, tokenizer, frage)
         print(f"🦅 Antwort:\n{antwort}\n")
@@ -235,11 +238,8 @@ def teste_vordefinierte_fragen(model, tokenizer):
 # EXPORTIERE MODELL
 # ============================================================================
 
-def exportiere_modell_fuer_deployment(
-    model,
-    tokenizer,
-    output_dir: str = "./models/legionaer-deployed"
-):
+
+def exportiere_modell_fuer_deployment(model, tokenizer, output_dir: str = "./models/legionaer-deployed"):
     """
     Exportiere das Modell für Deployment.
 
@@ -256,15 +256,16 @@ def exportiere_modell_fuer_deployment(
     model.save_pretrained(output_dir)
     tokenizer.save_pretrained(output_dir)
 
-    logger.info(f"✅ Modell exportiert! Du kannst es jetzt uploaden zu HuggingFace.")
-    logger.info(f"   Befehle:")
-    logger.info(f"   huggingface-cli login")
+    logger.info("✅ Modell exportiert! Du kannst es jetzt uploaden zu HuggingFace.")
+    logger.info("   Befehle:")
+    logger.info("   huggingface-cli login")
     logger.info(f"   huggingface-cli upload {output_dir} <repo-name>")
 
 
 # ============================================================================
 # MAIN
 # ============================================================================
+
 
 def main():
     """Haupt-Funktion"""
