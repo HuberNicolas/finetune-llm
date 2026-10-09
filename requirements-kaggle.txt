@@ -1,5 +1,5 @@
-# Requirements für Kaggle Notebooks
-# Installation: pip install -r requirements-kaggle.txt
+# Requirements for Colab and Kaggle notebooks
+# Install with: pip install -r requirements-kaggle.txt
 
 torch>=2.0.0
 numpy>=1.24
@@ -12,9 +12,9 @@ datasets>=2.14.0
 tqdm>=4.66.0
 python-dotenv>=1.0.0
 pyyaml>=6.0
-psutil>=5.9.0  # Für System-Monitoring (GPU/RAM Info)
+psutil>=5.9.0  # system info (GPU/RAM)
 
-# Optional für Notebooks
+# Optional, for notebooks
 jupyter>=1.0.0
 ipython>=8.15.0
 matplotlib>=3.8.0

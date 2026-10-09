@@ -1,8 +1,8 @@
 [workspace]
 name = "finetune-legionaer"
 version = "0.1.0"
-description = "Fine-Tuning eines Mistral-Modells für einen römischen Legionär Scrum Master"
-authors = ["Nicolas Huber <nicolas@example.com>"]
+description = "Fine-tune Mistral-7B with LoRA into a Roman legionary Scrum Master"
+authors = ["Nicolas Huber <nicolas.huber.dev@gmail.com>"]
 channels = ["conda-forge"]
 platforms = ["linux-64", "win-64"]
 
@@ -12,7 +12,7 @@ pip = "*"
 kaggle = ">=2.2.3,<3"
 
 [pypi-dependencies]
-# PyTorch & ML Libraries (via pip, nicht conda!)
+# PyTorch and ML libraries (from PyPI, not conda)
 torch = ">=2.0.0"
 numpy = ">=1.24"
 transformers = ">=4.35.0"

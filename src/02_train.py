@@ -1,30 +1,28 @@
 """
-02_train.py - Fine-Tuning mit LoRA
+02_train.py - Fine-tuning with LoRA
 
-Das ist das Herzstück! Hier trainieren wir das Modell mit:
-- torch: Die Berechnungs-Engine
-- transformers: Das HuggingFace Mistral-Modell
-- bitsandbytes: 4-bit Quantisierung (spart RAM!)
-- peft: LoRA-Adapter (trainiert nur ~1% der Parameter)
-- trl: SFTTrainer (der Trainer-Loop)
+The core of the project. It trains the model with:
+- torch: the compute engine
+- transformers: the Hugging Face Mistral model
+- bitsandbytes: 4-bit quantisation (saves memory)
+- peft: LoRA adapters (trains well under 1% of the parameters)
+- trl: SFTTrainer (the training loop)
 
-Ziel: Das Modell lernt den römischen Legionär-Stil in ~30 Minuten auf einer T4 GPU!
+Goal: the model picks up the Roman legionary's style in about 30 minutes on a T4 GPU.
 """
 
 import json
 import logging
 import os
+import sys
+import traceback
 from pathlib import Path
 
 import psutil
 import torch
 from datasets import Dataset
 from peft import LoraConfig, get_peft_model
-
-# Progress Bars
 from tqdm import tqdm
-
-# HuggingFace Imports
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -33,133 +31,127 @@ from transformers import (
 from trl import SFTConfig, SFTTrainer
 
 # ============================================================================
-# LOGGING SETUP
+# LOGGING
 # ============================================================================
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # ============================================================================
-# HILFS-FUNKTIONEN FÜR SYSTEM-MONITORING
+# SYSTEM MONITORING
 # ============================================================================
 
 
-def zeige_system_info():
-    """Zeigt GPU/CPU/RAM Info"""
+def show_system_info():
+    """Print GPU, CPU and RAM information."""
     print("\n" + "=" * 70)
     print("🖥️  SYSTEM INFORMATION")
     print("=" * 70)
 
-    # GPU
     if torch.cuda.is_available():
         print(f"✅ GPU: {torch.cuda.get_device_name(0)}")
-        print(f"   CUDA Version: {torch.version.cuda}")
+        print(f"   CUDA version: {torch.version.cuda}")
         gpu_mem = torch.cuda.get_device_properties(0).total_memory / 1e9
         print(f"   VRAM: {gpu_mem:.1f} GB")
     else:
-        print("⚠️  GPU: NICHT VERFÜGBAR (Training wird sehr langsam)")
+        print("⚠️  GPU: NOT AVAILABLE (training would be very slow)")
 
-    # CPU
     cpu_count = psutil.cpu_count()
-    print(f"\n💻 CPU: {cpu_count} Cores")
+    print(f"\n💻 CPU: {cpu_count} cores")
 
-    # RAM
     ram_info = psutil.virtual_memory()
-    print(f"   RAM: {ram_info.total / 1e9:.1f} GB (verfügbar: {ram_info.available / 1e9:.1f} GB)")
+    print(f"   RAM: {ram_info.total / 1e9:.1f} GB (available: {ram_info.available / 1e9:.1f} GB)")
 
     print("=" * 70 + "\n")
 
 
 # ============================================================================
-# KONFIGURATION
+# CONFIGURATION
 # ============================================================================
 
-# Basis-Modell von HuggingFace
-MODELL_ID = "mistralai/Mistral-7B-Instruct-v0.3"
+# Base model on Hugging Face
+MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.3"
 
-# LoRA Hyperparameter - "wie fein-granular lernt der Adapter?"
+# LoRA hyperparameters - how much capacity the adapters get
 LORA_CONFIG = {
-    "r": 16,  # Rank - breite der Adapter-Matrix
-    "lora_alpha": 32,  # Scaling-Faktor (meist 2x r)
-    "target_modules": [  # Welche Layer bekommen LoRA?
-        "q_proj",  # Query Projektion (Attention)
-        "v_proj",  # Value Projektion (Attention)
+    "r": 16,  # rank: width of the adapter matrices
+    "lora_alpha": 32,  # scaling factor (usually 2x r)
+    "target_modules": [  # layers that get adapters
+        "q_proj",  # query projection (attention)
+        "v_proj",  # value projection (attention)
     ],
-    "lora_dropout": 0.05,  # Dropout gegen Overfitting
-    "bias": "none",  # Keine Bias-Anpassung
-    "task_type": "CAUSAL_LM",  # Causal Language Modeling = nächstes Wort vorhersagen
+    "lora_dropout": 0.05,  # dropout against overfitting
+    "bias": "none",  # do not train biases
+    "task_type": "CAUSAL_LM",  # causal language modelling = predict the next token
 }
 
-# Training Hyperparameter - "wie intensiv trainieren?"
+# Training hyperparameters
 TRAINING_CONFIG = {
-    "output_dir": "./models/legionaer-sft",  # Wo speichern?
-    "num_train_epochs": 3,  # 3x durch alle Daten
-    "per_device_train_batch_size": 4,  # 4 Beispiele auf einmal (GPU)
-    "gradient_accumulation_steps": 2,  # Effektive batch_size = 4*2 = 8
-    "learning_rate": 2e-4,  # Wie große Lernschritte?
-    "warmup_ratio": 0.1,  # Erst langsam "aufwärmen"
-    "weight_decay": 0.01,  # L2 Regularisierung
-    "save_steps": 100,  # Checkpoint alle 100 Schritte
-    "logging_steps": 10,  # Logs alle 10 Schritte
-    "save_total_limit": 3,  # Max 3 Checkpoints speichern
+    "output_dir": "./models/legionaer-sft",  # checkpoints
+    "num_train_epochs": 3,  # passes over the data
+    "per_device_train_batch_size": 4,  # examples per step on the GPU
+    "gradient_accumulation_steps": 2,  # effective batch size = 4 * 2 = 8
+    "learning_rate": 2e-4,
+    "warmup_ratio": 0.1,  # warm up during the first 10% of the steps
+    "weight_decay": 0.01,  # L2 regularisation
+    "save_steps": 100,  # checkpoint every 100 steps
+    "logging_steps": 10,  # log every 10 steps
+    "save_total_limit": 3,  # keep at most 3 checkpoints
 }
 
+DATASET_PATH = "data/legionaer_training_data.json"
+FINAL_MODEL_DIR = "./models/legionaer-final"
+
 # ============================================================================
-# SETUP - GPU / CUDA Erkennung
+# GPU CHECK
 # ============================================================================
 
 
-def pruefe_gpu():
-    """Prüfe ob GPU verfügbar ist"""
+def check_gpu():
+    """Return True if a CUDA GPU is available."""
     print("\n" + "=" * 70)
     print("🔍 GPU DETECTION")
     print("=" * 70)
 
     if torch.cuda.is_available():
-        print(f"✅ GPU gefunden: {torch.cuda.get_device_name(0)}")
+        print(f"✅ GPU found: {torch.cuda.get_device_name(0)}")
         print(f"   VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
-
-        # Clear cache
         torch.cuda.empty_cache()
-        print("✅ GPU Cache geleert")
+        print("✅ GPU cache cleared")
         return True
-    else:
-        logger.error("❌ KEINE GPU VERFÜGBAR!")
-        logger.error("   Training ohne GPU ist NICHT möglich!")
-        logger.error("   Bitte aktiviere GPU in:")
-        logger.error("   - Colab: Runtime → Change runtime type → GPU")
-        logger.error("   - Kaggle: Notebook settings → GPU")
-        return False
+
+    logger.error("❌ NO GPU AVAILABLE!")
+    logger.error("   Training without a GPU is not supported.")
+    logger.error("   Enable a GPU in:")
+    logger.error("   - Colab: Runtime → Change runtime type → GPU")
+    logger.error("   - Kaggle: Notebook settings → GPU")
+    return False
 
 
 # ============================================================================
-# HAUPTFUNKTION: MODELL LADEN & VORBEREITEN
+# LOAD MODEL AND TOKENIZER
 # ============================================================================
 
 
-def lade_modell_und_tokenizer(
-    modell_id: str = MODELL_ID,
+def load_model_and_tokenizer(
+    model_id: str = MODEL_ID,
     use_4bit: bool = True,
 ) -> tuple:
-    """
-    Laden des Mistral-Modells mit optionaler 4-bit Quantisierung.
-    """
+    """Load the Mistral model, optionally quantised to 4 bit."""
     print("\n" + "=" * 70)
-    print("🚀 MODELL LADEN")
+    print("🚀 LOADING MODEL")
     print("=" * 70)
 
     try:
-        # ========== TOKENIZER laden ==========
-        logger.info(f"1️⃣  Lade Tokenizer: {modell_id}")
+        logger.info(f"1️⃣  Loading tokenizer: {model_id}")
         with tqdm(total=1, desc="Tokenizer", unit="step") as pbar:
-            tokenizer = AutoTokenizer.from_pretrained(modell_id)
+            tokenizer = AutoTokenizer.from_pretrained(model_id)
             tokenizer.pad_token = tokenizer.eos_token
             pbar.update(1)
-        logger.info(f"✅ Tokenizer geladen. Vocab-size: {tokenizer.vocab_size}")
+        logger.info(f"✅ Tokenizer loaded. Vocabulary size: {tokenizer.vocab_size}")
 
-        # ========== 4-BIT QUANTISIERUNG CONFIG ==========
         if use_4bit:
-            logger.info("2️⃣  Konfiguriere 4-bit Quantisierung...")
-            with tqdm(total=1, desc="Quantisierung", unit="step") as pbar:
+            logger.info("2️⃣  Configuring 4-bit quantisation...")
+            with tqdm(total=1, desc="Quantisation", unit="step") as pbar:
                 bnb_config = BitsAndBytesConfig(
                     load_in_4bit=True,
                     bnb_4bit_quant_type="nf4",
@@ -167,65 +159,62 @@ def lade_modell_und_tokenizer(
                     bnb_4bit_use_double_quant=True,
                 )
                 pbar.update(1)
-            logger.info("✅ 4-bit Config erstellt (RAM: 28GB → 4GB)")
+            logger.info("✅ 4-bit config created (~14 GB → ~4 GB)")
 
-            logger.info("3️⃣  Lade Modell (großer Download, ~15GB)...")
+            logger.info("3️⃣  Loading model (large download, ~15 GB)...")
             model = AutoModelForCausalLM.from_pretrained(
-                modell_id,
+                model_id,
                 quantization_config=bnb_config,
                 device_map="auto",
                 trust_remote_code=True,
             )
         else:
-            logger.warning("⚠️  Keine Quantisierung! (braucht ~28GB VRAM)")
+            logger.warning("⚠️  No quantisation (needs ~15 GB of VRAM)")
             model = AutoModelForCausalLM.from_pretrained(
-                modell_id,
+                model_id,
                 device_map="auto",
                 torch_dtype=torch.float16,
             )
 
-        logger.info("✅ Modell geladen")
+        logger.info("✅ Model loaded")
         print("=" * 70)
 
         return model, tokenizer
 
     except Exception as e:
-        logger.error("❌ Fehler beim Laden des Modells!")
+        logger.error("❌ Failed to load the model!")
         logger.error(f"   {str(e)}")
-        logger.error("   Tipps:")
-        logger.error("   - GPU verfügbar? (check mit torch.cuda.is_available())")
-        logger.error("   - Genug VRAM? (min 16GB für T4)")
-        logger.error("   - Internet OK? (großer Download)")
+        logger.error("   Hints:")
+        logger.error("   - Is a GPU available? (torch.cuda.is_available())")
+        logger.error("   - Enough VRAM? (a T4 has 16 GB)")
+        logger.error("   - Internet connection OK? (large download)")
         raise
 
 
 # ============================================================================
-# LORA ADAPTER ERSTELLEN
+# LORA ADAPTERS
 # ============================================================================
 
 
-def erstelle_lora_adapter(model, lora_config: dict):
+def add_lora_adapters(model, lora_config: dict):
     """
-    Wrappt das Modell mit LoRA-Adaptern.
+    Wrap the model with LoRA adapters.
 
-    LoRA (Low-Rank Adaptation) ist der Trick um große Modelle effizient zu trainieren:
+    LoRA (Low-Rank Adaptation) trains large models efficiently. Instead of
+    updating a full weight matrix, it trains two small matrices next to it:
 
-    Statt alle 7 Milliarden Parameter zu trainieren:
-        Modell: [4096 × 4096] = ~16M Parameter pro Layer ← EINGEFROREN
-        LoRA:   [4096 × 16] + [16 × 4096] = ~131K Parameter ← NUR DAS trainieren!
-
-    Das spart ~99% der Rechenzeit und Speicher!
+        Weight: [4096 × 4096] = ~16.8M parameters per layer ← frozen
+        LoRA:   [4096 × 16] + [16 × 4096] = ~131K parameters ← trained
 
     Args:
-        model: Das geladene Modell
-        lora_config: LoRA-Konfiguration
+        model: The loaded model
+        lora_config: LoRA settings
 
     Returns:
-        Das Modell mit LoRA-Adaptern
+        The model with LoRA adapters
     """
-    logger.info("🎯 Erstelle LoRA-Adapter...")
+    logger.info("🎯 Adding LoRA adapters...")
 
-    # Konfiguriere LoRA
     peft_config = LoraConfig(
         r=lora_config["r"],
         lora_alpha=lora_config["lora_alpha"],
@@ -235,94 +224,84 @@ def erstelle_lora_adapter(model, lora_config: dict):
         task_type=lora_config["task_type"],
     )
 
-    # Wrappt das Modell mit LoRA
     model = get_peft_model(model, peft_config)
 
-    # Zeige Parameter-Statistik
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total_params = sum(p.numel() for p in model.parameters())
 
-    logger.info("✅ LoRA Adapter erstellt!")
-    logger.info(f"   Trainierbare Parameter: {trainable_params:,}")
-    logger.info(f"   Gesamt Parameter: {total_params:,}")
-    logger.info(f"   Anteil trainiert: {100 * trainable_params / total_params:.2f}%")
+    logger.info("✅ LoRA adapters added")
+    logger.info(f"   Trainable parameters: {trainable_params:,}")
+    logger.info(f"   Total parameters: {total_params:,}")
+    logger.info(f"   Share trained: {100 * trainable_params / total_params:.2f}%")
 
     return model
 
 
 # ============================================================================
-# DATENSATZ VORBEREITEN
+# DATASET
 # ============================================================================
 
 
-def lade_datensatz(datensatz_pfad: str = "data/legionaer_training_data.json") -> Dataset:
-    """
-    Laden des Trainings-Datensatzes mit Progress Bar.
-    """
+def load_dataset(dataset_path: str = DATASET_PATH) -> Dataset:
+    """Load the training examples and format them in the Mistral prompt format."""
     print("\n" + "=" * 70)
-    print("📂 DATENSATZ LADEN")
+    print("📂 LOADING DATASET")
     print("=" * 70)
 
-    if not os.path.exists(datensatz_pfad):
-        logger.error(f"❌ Datensatz nicht gefunden: {datensatz_pfad}")
-        logger.error("   Bitte stelle sicher, dass die Datei existiert!")
-        raise FileNotFoundError(f"Datensatz nicht gefunden: {datensatz_pfad}")
+    if not os.path.exists(dataset_path):
+        logger.error(f"❌ Dataset not found: {dataset_path}")
+        raise FileNotFoundError(f"Dataset not found: {dataset_path}")
 
-    # JSON laden
-    with open(datensatz_pfad, "r", encoding="utf-8") as f:
+    with open(dataset_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    logger.info(f"✅ {len(data)} Trainingsbeispiele geladen")
+    logger.info(f"✅ {len(data)} training examples loaded")
 
-    # Formatiere als "text" für SFTTrainer mit Progress Bar
-    formatted_data = []
-    for item in tqdm(data, desc="Formatiere Datensatz", unit="item"):
-        text = f"""[INST] {item["instruction"]} [/INST] {item["output"]} </s>"""
-        formatted_data.append({"text": text})
+    # The tokenizer adds the BOS token <s> itself
+    texts = [
+        f"""[INST] {item["instruction"]} [/INST] {item["output"]} </s>"""
+        for item in tqdm(data, desc="Formatting dataset", unit="item")
+    ]
 
-    # Konvertiere zu HuggingFace Dataset
-    dataset = Dataset.from_dict({"text": [d["text"] for d in formatted_data]})
-    logger.info("✅ Datensatz formatiert und vorbereitet")
+    dataset = Dataset.from_dict({"text": texts})
+    logger.info("✅ Dataset formatted")
     print("=" * 70)
 
     return dataset
 
 
 # ============================================================================
-# TRAINING STARTEN
+# TRAINING
 # ============================================================================
 
 
-def starte_training(
+def train(
     model,
     tokenizer,
-    datensatz: Dataset,
+    dataset: Dataset,
     training_config: dict,
-    output_dir: str = "models/legionaer-sft",
 ):
     """
-    Trainiere das Modell mit SFTTrainer.
+    Train the model with TRL's SFTTrainer.
 
-    SFTTrainer (Supervised Fine-Tuning Trainer) ist der "Drill-Sergeant":
-    - Lädt die Daten
-    - Berechnet Loss (wie weit war die Vorhersage weg?)
-    - Macht Backpropagation (berechnet Gradienten)
-    - Aktualisiert die LoRA-Adapter
-    - Speichert Checkpoints
+    SFTTrainer (supervised fine-tuning) runs the loop:
+    - batches the data
+    - computes the loss (how far off was the prediction?)
+    - backpropagates (computes the gradients)
+    - updates the LoRA adapters
+    - saves checkpoints
 
     Args:
-        model: Das Modell mit LoRA-Adaptern
-        tokenizer: Der Tokenizer
-        datensatz: Das Training Dataset
-        training_config: Hyperparameter
-        output_dir: Wo speichern wir die trainierten Adapter?
+        model: The model with LoRA adapters
+        tokenizer: The tokenizer
+        dataset: The training dataset
+        training_config: Hyperparameters, including output_dir
     """
-    logger.info("🏋️ Starte Training...")
+    logger.info("🏋️ Starting training...")
 
-    # Output-Verzeichnis erstellen
+    output_dir = training_config["output_dir"]
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    # Training-Argumente
     training_args = SFTConfig(
         output_dir=output_dir,
         num_train_epochs=training_config["num_train_epochs"],
@@ -335,41 +314,38 @@ def starte_training(
         save_steps=training_config["save_steps"],
         logging_steps=training_config["logging_steps"],
         save_total_limit=training_config["save_total_limit"],
-        report_to=[],  # Keine W&B oder mlflow Reporting (optional)
-        max_length=512,  # Max Sequenz-Länge
-        packing=True,  # Packe kurze Beispiele zusammen = schneller
-        optim="paged_adamw_32bit",  # Memory-effizient
+        report_to=[],  # no W&B or MLflow reporting
+        max_length=512,  # maximum sequence length
+        packing=True,  # pack short examples together = faster
+        optim="paged_adamw_32bit",  # memory-efficient optimiser
     )
 
-    # Erstelle Trainer
     trainer = SFTTrainer(
         model=model,
         processing_class=tokenizer,
-        train_dataset=datensatz,
+        train_dataset=dataset,
         args=training_args,
     )
 
-    # Los geht's!
     print("\n" + "=" * 70)
-    print("⚔️  TRAINING STARTET! Für Rom!")
+    print("⚔️  TRAINING STARTS! For Rome!")
     print("=" * 70)
-    logger.info("Das SFTTrainer Progress wird unten angezeigt...")
 
     try:
         trainer.train()
         print("\n" + "=" * 70)
-        print("✅ TRAINING ERFOLGREICH ABGESCHLOSSEN!")
+        print("✅ TRAINING COMPLETED")
         print("=" * 70)
-        logger.info(f"📁 Modell gespeichert in: {output_dir}")
+        logger.info(f"📁 Checkpoints saved in: {output_dir}")
     except Exception as e:
         print("\n" + "=" * 70)
-        print("❌ TRAINING FEHLGESCHLAGEN!")
+        print("❌ TRAINING FAILED!")
         print("=" * 70)
-        logger.error(f"Fehler: {str(e)}")
-        logger.error("Tipps:")
-        logger.error("   - Out of Memory (OOM)? Reduziere batch_size in config")
-        logger.error("   - Netzwerk-Fehler? Retry!")
-        logger.error("   - GPU-Fehler? Starte Colab neu")
+        logger.error(f"Error: {str(e)}")
+        logger.error("Hints:")
+        logger.error("   - Out of memory (OOM)? Reduce the batch size")
+        logger.error("   - Network error? Try again")
+        logger.error("   - GPU error? Restart the Colab runtime")
         raise
 
     return trainer
@@ -380,93 +356,72 @@ def starte_training(
 # ============================================================================
 
 
-def main():
-    """Führe den gesamten Training-Pipeline aus"""
+def main() -> int:
+    """Run the whole training pipeline."""
 
     print("\n" + "=" * 70)
-    print("🦅 LEGIONÄR SCRUM MASTER - FINE-TUNING")
+    print("🦅 LEGIONARY SCRUM MASTER - FINE-TUNING")
     print("=" * 70)
 
     try:
-        # 1. System Info + GPU Check
-        zeige_system_info()
-        if not pruefe_gpu():
-            logger.error("Abbruch: Keine GPU verfügbar!")
+        # 1. System info and GPU check
+        show_system_info()
+        if not check_gpu():
+            logger.error("Aborting: no GPU available")
             return 1
 
-        # 2. Stelle sicher dass Datensatz existiert
-        datensatz_pfad = "data/legionaer_training_data.json"
-        if not Path(datensatz_pfad).exists():
-            logger.error(f"❌ Datensatz nicht gefunden: {datensatz_pfad}")
-            logger.info("   Bitte erst 01_dataset.py ausführen!")
+        # 2. Make sure the dataset exists
+        if not Path(DATASET_PATH).exists():
+            logger.error(f"❌ Dataset not found: {DATASET_PATH}")
+            logger.info("   Run src/01_dataset.py first")
             return 1
 
-        # 3. Lade Modell
-        model, tokenizer = lade_modell_und_tokenizer(use_4bit=True)
+        # 3. Load the model
+        model, tokenizer = load_model_and_tokenizer(use_4bit=True)
 
-        # 4. Erstelle LoRA Adapter
-        model = erstelle_lora_adapter(model, LORA_CONFIG)
+        # 4. Add LoRA adapters
+        model = add_lora_adapters(model, LORA_CONFIG)
 
-        # 5. Lade Datensatz
-        datensatz = lade_datensatz(datensatz_pfad)
-        logger.info(f"📊 Datensatz-Größe: {len(datensatz)} Beispiele")
+        # 5. Load the dataset
+        dataset = load_dataset(DATASET_PATH)
 
-        # 6. Starte Training
-        trainer = starte_training(
-            model,
-            tokenizer,
-            datensatz,
-            TRAINING_CONFIG,
-        )
+        # 6. Train
+        train(model, tokenizer, dataset, TRAINING_CONFIG)
 
-        # 7. Speichere finale LoRA-Adapter
+        # 7. Save the final LoRA adapters
         print("\n" + "=" * 70)
-        print("💾 SPEICHERE FINALE ADAPTER")
+        print("💾 SAVING FINAL ADAPTERS")
         print("=" * 70)
-        final_model_dir = "./models/legionaer-final"
-        Path(final_model_dir).mkdir(parents=True, exist_ok=True)
+        Path(FINAL_MODEL_DIR).mkdir(parents=True, exist_ok=True)
 
-        with tqdm(total=1, desc="Speichere Modell", unit="step") as pbar:
-            model.save_pretrained(final_model_dir)
+        with tqdm(total=1, desc="Saving model", unit="step") as pbar:
+            model.save_pretrained(FINAL_MODEL_DIR)
             pbar.update(1)
 
-        logger.info(f"✅ Finale Adapter gespeichert in: {final_model_dir}")
-
         print("\n" + "=" * 70)
-        print("🎉 ALLES FERTIG!")
+        print("🎉 DONE!")
         print("=" * 70)
-        print(f"✅ Trainiertes Modell: {final_model_dir}/")
-        print("✅ Nächster Schritt: python src/03_inference.py")
+        print(f"✅ Trained adapters: {FINAL_MODEL_DIR}/")
+        print("✅ Next step: python src/03_inference.py")
         print("=" * 70 + "\n")
 
         return 0
 
     except KeyboardInterrupt:
         print("\n" + "=" * 70)
-        print("⚠️  TRAINING ABGEBROCHEN (Ctrl+C)")
+        print("⚠️  TRAINING CANCELLED (Ctrl+C)")
         print("=" * 70)
         return 1
 
     except Exception as e:
         print("\n" + "=" * 70)
-        print("❌ FEHLER BEI DER AUSFÜHRUNG!")
+        print("❌ ERROR!")
         print("=" * 70)
-        logger.error(f"Fehler: {type(e).__name__}: {str(e)}")
-        logger.error("\nStack Trace:")
-        import traceback
-
+        logger.error(f"Error: {type(e).__name__}: {str(e)}")
         traceback.print_exc()
         print("=" * 70)
         return 1
-    logger.info(f"✅ Finale LoRA-Adapter gespeichert: {final_model_dir}")
-
-    print("\n" + "=" * 70)
-    print("🎉 TRAINING ERFOLGREICH!")
-    print("=" * 70)
-    print("Modell gespeichert in: ./models/legionaer-final")
-    print("Training-Logs: ./models/legionaer-sft/")
-    print("\nNächster Schritt: Starten Sie 03_inference.py um das Modell zu testen!")
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

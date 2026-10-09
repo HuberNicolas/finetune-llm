@@ -1,14 +1,12 @@
 """
-03_inference.py - Inferenz & Testing
+03_inference.py - Inference and testing
 
-Jetzt testen wir unser trainiertes Modell!
+Tests the trained model. With the trained LoRA adapters we:
+1. load the base Mistral model,
+2. put the LoRA adapters on top,
+3. ask questions and get answers in the legionary's style.
 
-Mit nur den trainierten LoRA-Adaptern können wir:
-1. Das Basis-Mistral-Modell laden
-2. Die LoRA-Adapter laden
-3. Fragen stellen und römisch-korrekte Antworten bekommen!
-
-Der römische Legionär Scrum Master ist geboren! 🦅
+The test questions are in German, like the training data.
 """
 
 import logging
@@ -16,8 +14,6 @@ from pathlib import Path
 
 import torch
 from peft import PeftModel
-
-# HuggingFace Imports
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -31,46 +27,46 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ============================================================================
-# KONFIGURATION
+# CONFIGURATION
 # ============================================================================
 
-MODELL_ID = "mistralai/Mistral-7B-Instruct-v0.3"
-LORA_MODELL_ID = "./models/legionaer-final"
+MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.3"
+LORA_MODEL_PATH = "./models/legionaer-final"
 
 # ============================================================================
-# MODELL LADEN - MIT LORA ADAPTERN
+# LOAD MODEL WITH LORA ADAPTERS
 # ============================================================================
 
 
-def lade_modell_mit_lora(
-    basis_modell_id: str = MODELL_ID,
-    lora_modell_id: str = LORA_MODELL_ID,
+def load_model_with_lora(
+    base_model_id: str = MODEL_ID,
+    lora_model_path: str = LORA_MODEL_PATH,
     use_4bit: bool = True,
 ) -> tuple:
     """
-    Lade Basis-Modell + LoRA-Adapter zusammen.
+    Load the base model and put the LoRA adapters on top.
 
-    Das ist das Schöne an LoRA:
-    - Die LoRA-Adapter sind winzig (~1% der Modell-Größe)
-    - Wir speichern nur die Adapter
-    - Beim Laden kombinieren wir Basis-Modell + Adapter
-    - Resultat: Der "römische Legionär" ist bereit! 🦅
+    The adapters are tiny compared to the model, so only they are saved after
+    training. At inference time they are combined with the base model again.
 
     Args:
-        basis_modell_id: HuggingFace ID des Basis-Modells
-        lora_modell_id: Pfad zu den trainierten LoRA-Adaptern
-        use_4bit: Nutze 4-bit Quantisierung?
+        base_model_id: Hugging Face ID of the base model
+        lora_model_path: Path to the trained LoRA adapters
+        use_4bit: Load the base model quantised to 4 bit
 
     Returns:
-        (model, tokenizer)
+        (model, tokenizer), or (None, None) if the adapters are missing
     """
-    logger.info(f"🚀 Lade Basis-Modell: {basis_modell_id}")
+    if not Path(lora_model_path).exists():
+        logger.error(f"❌ LoRA adapters not found: {lora_model_path}")
+        logger.info("   Run src/02_train.py first")
+        return None, None
 
-    # ========== TOKENIZER ==========
-    tokenizer = AutoTokenizer.from_pretrained(basis_modell_id)
+    logger.info(f"🚀 Loading base model: {base_model_id}")
+
+    tokenizer = AutoTokenizer.from_pretrained(base_model_id)
     tokenizer.pad_token = tokenizer.eos_token
 
-    # ========== BASIS-MODELL MIT 4-BIT QUANTISIERUNG ==========
     if use_4bit:
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
@@ -78,139 +74,119 @@ def lade_modell_mit_lora(
             bnb_4bit_compute_dtype=torch.float16,
         )
         model = AutoModelForCausalLM.from_pretrained(
-            basis_modell_id,
+            base_model_id,
             quantization_config=bnb_config,
             device_map="auto",
             trust_remote_code=True,
         )
     else:
         model = AutoModelForCausalLM.from_pretrained(
-            basis_modell_id,
+            base_model_id,
             device_map="auto",
             torch_dtype=torch.float16,
         )
 
-    logger.info("✅ Basis-Modell geladen")
+    logger.info("✅ Base model loaded")
 
-    # ========== LADEN DER LORA-ADAPTER ==========
-    logger.info(f"🎯 Lade LoRA-Adapter: {lora_modell_id}")
-
-    # Verprüfe ob LoRA-Modell existiert
-    if not Path(lora_modell_id).exists():
-        logger.error(f"❌ LoRA-Adapter nicht gefunden: {lora_modell_id}")
-        logger.info("   Bitte erst 02_train.py ausführen!")
-        return None, None
-
-    # Merge die LoRA-Adapter mit dem Basis-Modell
-    model = PeftModel.from_pretrained(model, lora_modell_id)
-
-    logger.info("✅ LoRA-Adapter geladen und gemerged!")
+    logger.info(f"🎯 Loading LoRA adapters: {lora_model_path}")
+    model = PeftModel.from_pretrained(model, lora_model_path)
+    logger.info("✅ LoRA adapters loaded")
 
     return model, tokenizer
 
 
 # ============================================================================
-# INFERENCE - GENERIERE ANTWORTEN
+# GENERATE ANSWERS
 # ============================================================================
 
 
-def generiere_antwort(
+def generate_answer(
     model,
     tokenizer,
-    frage: str,
-    max_length: int = 256,
+    question: str,
+    max_new_tokens: int = 256,
     temperature: float = 0.7,
     top_p: float = 0.9,
 ) -> str:
     """
-    Generiere eine Antwort vom römischen Legionär!
+    Generate the legionary's answer to a question.
 
     Args:
-        model: Das geladene Modell mit LoRA
-        tokenizer: Der Tokenizer
-        frage: Die Frage an den Legionär
-        max_length: Max Ausgabe-Länge
-        temperature: Kreativität (0=deterministisch, 1=kreativ)
-        top_p: Nucleus Sampling (höher = vielfältiger)
+        model: The model with LoRA adapters
+        tokenizer: The tokenizer
+        question: The question for the legionary
+        max_new_tokens: Maximum length of the answer
+        temperature: Creativity (0 = deterministic, 1 = creative)
+        top_p: Nucleus sampling (higher = more varied)
 
     Returns:
-        Die römische Antwort!
+        The answer
     """
-    # Formatiere die Frage im Mistral-Format
-    prompt = f"""[INST] {frage} [/INST]"""
+    # Mistral prompt format; the tokenizer adds the BOS token <s> itself
+    prompt = f"""[INST] {question} [/INST]"""
 
-    # Tokenisiere
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
-    # Generiere
     with torch.no_grad():
         outputs = model.generate(
             input_ids=inputs["input_ids"],
             attention_mask=inputs["attention_mask"],
-            max_new_tokens=max_length,
+            max_new_tokens=max_new_tokens,
             temperature=temperature,
             top_p=top_p,
             do_sample=True,
             pad_token_id=tokenizer.eos_token_id,
         )
 
-    # Dekodiere nur die neu generierten Tokens (ohne den Prompt)
-    neue_tokens = outputs[0][inputs["input_ids"].shape[1] :]
-    antwort = tokenizer.decode(neue_tokens, skip_special_tokens=True).strip()
-
-    return antwort
+    # Decode only the generated tokens, without the prompt
+    new_tokens = outputs[0][inputs["input_ids"].shape[1] :]
+    return tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
 
 # ============================================================================
-# INTERAKTIVE TESTING SESSION
+# INTERACTIVE CHAT
 # ============================================================================
 
 
-def starte_chat_session(model, tokenizer):
+def start_chat_session(model, tokenizer):
     """
-    Starte eine interaktive Chat-Sitzung mit dem Legionär!
+    Chat with the legionary in the terminal.
 
-    Beispiel-Fragen:
+    Example questions:
     - "Was ist ein Sprint?"
-    - "Wie handle ich mit Konflikten im Team?"
+    - "Wie gehe ich mit Konflikten im Team um?"
     - "Erkläre mir Agile!"
     """
     print("\n" + "=" * 70)
-    print("🦅 LEGIONÄR SCRUM MASTER - CHAT SESSION")
+    print("🦅 LEGIONARY SCRUM MASTER - CHAT SESSION")
     print("=" * 70)
-    print("\nDu sprichst jetzt mit Marcus Productivus Maximus!")
-    print("Der römische Legionär Scrum Master antwortet auf deine Fragen.")
-    print("\nSchreibe 'exit' um zu beenden.\n")
+    print("\nYou are talking to Marcus Productivus Maximus.")
+    print("Ask questions about Scrum (in German works best).")
+    print("\nType 'exit' to quit.\n")
 
     while True:
-        # Benutzer-Input
-        frage = input("Du: ").strip()
+        question = input("You: ").strip()
 
-        if frage.lower() in ["exit", "quit", "q"]:
-            print("\n🦅 Marcus: Vale! (Auf Wiedersehen!) Für Rom!\n")
+        if question.lower() in ["exit", "quit", "q"]:
+            print("\n🦅 Marcus: Vale! For Rome!\n")
             break
 
-        if not frage:
+        if not question:
             continue
 
-        # Generiere Antwort
-        print("\n🦅 Marcus denkt...\n")
-        antwort = generiere_antwort(model, tokenizer, frage)
-        print(f"🦅 Marcus: {antwort}\n")
+        print("\n🦅 Marcus is thinking...\n")
+        answer = generate_answer(model, tokenizer, question)
+        print(f"🦅 Marcus: {answer}\n")
 
 
 # ============================================================================
-# BATCH TESTING - VORDEFINIERTE FRAGEN
+# TEST QUESTIONS
 # ============================================================================
 
 
-def teste_vordefinierte_fragen(model, tokenizer):
-    """
-    Teste das Modell mit vorfdefinierten Fragen.
-
-    Nützlich um die Qualität zu evaluieren.
-    """
-    test_fragen = [
+def run_test_questions(model, tokenizer):
+    """Answer a fixed set of questions, to judge the result by eye."""
+    test_questions = [
         "Was ist ein Sprint?",
         "Wie führe ich ein effektives Daily Standup?",
         "Was ist eine gute User Story?",
@@ -221,45 +197,40 @@ def teste_vordefinierte_fragen(model, tokenizer):
     ]
 
     print("\n" + "=" * 70)
-    print("🦅 LEGIONÄR SCRUM MASTER - TEST SUITE")
+    print("🦅 LEGIONARY SCRUM MASTER - TEST QUESTIONS")
     print("=" * 70)
 
-    for i, frage in enumerate(test_fragen, 1):
+    for i, question in enumerate(test_questions, 1):
         print(f"\n{'=' * 70}")
-        print(f"Test {i}/{len(test_fragen)}")
-        print(f"❓ Frage: {frage}")
+        print(f"Test {i}/{len(test_questions)}")
+        print(f"❓ Question: {question}")
         print(f"{'=' * 70}")
 
-        antwort = generiere_antwort(model, tokenizer, frage)
-        print(f"🦅 Antwort:\n{antwort}\n")
+        answer = generate_answer(model, tokenizer, question)
+        print(f"🦅 Answer:\n{answer}\n")
 
 
 # ============================================================================
-# EXPORTIERE MODELL
+# EXPORT
 # ============================================================================
 
 
-def exportiere_modell_fuer_deployment(model, tokenizer, output_dir: str = "./models/legionaer-deployed"):
+def export_model(model, tokenizer, output_dir: str = "./models/legionaer-deployed"):
     """
-    Exportiere das Modell für Deployment.
-
-    Du kannst das Modell dann:
-    1. Zu HuggingFace Hub uploaden
-    2. Mit Ollama lokal laufen
-    3. In einer FastAPI deployen
+    Save the LoRA adapters together with the tokenizer, ready to upload to the
+    Hugging Face Hub. The base model is not included; users load it from the
+    Hub and put the adapters on top.
     """
-    logger.info(f"📦 Exportiere Modell für Deployment: {output_dir}")
+    logger.info(f"📦 Exporting adapters and tokenizer: {output_dir}")
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    # Speichere das gemerged-Modell
     model.save_pretrained(output_dir)
     tokenizer.save_pretrained(output_dir)
 
-    logger.info("✅ Modell exportiert! Du kannst es jetzt uploaden zu HuggingFace.")
-    logger.info("   Befehle:")
-    logger.info("   huggingface-cli login")
-    logger.info(f"   huggingface-cli upload {output_dir} <repo-name>")
+    logger.info("✅ Export done. Upload it to the Hugging Face Hub with:")
+    logger.info("   hf auth login")
+    logger.info(f"   hf upload <username>/<repo-name> {output_dir}")
 
 
 # ============================================================================
@@ -268,38 +239,33 @@ def exportiere_modell_fuer_deployment(model, tokenizer, output_dir: str = "./mod
 
 
 def main():
-    """Haupt-Funktion"""
-
-    # Lade Modell
-    model, tokenizer = lade_modell_mit_lora()
+    model, tokenizer = load_model_with_lora()
 
     if model is None:
-        logger.error("❌ Fehler beim Laden des Modells!")
         return
 
-    # Menü
     print("\n" + "=" * 70)
-    print("🦅 LEGIONÄR SCRUM MASTER - INFERENZ")
+    print("🦅 LEGIONARY SCRUM MASTER - INFERENCE")
     print("=" * 70)
-    print("\nWas möchtest du tun?")
-    print("1. Chat-Session (interaktiv)")
-    print("2. Test-Fragen durchlaufen")
-    print("3. Modell exportieren für Deployment")
-    print("4. Alle durchlaufen (1 + 2)")
+    print("\nWhat do you want to do?")
+    print("1. Chat (interactive)")
+    print("2. Run the test questions")
+    print("3. Export adapters for upload")
+    print("4. Test questions, then chat")
 
-    wahl = input("\nWähle (1-4): ").strip()
+    choice = input("\nChoose (1-4): ").strip()
 
-    if wahl == "1":
-        starte_chat_session(model, tokenizer)
-    elif wahl == "2":
-        teste_vordefinierte_fragen(model, tokenizer)
-    elif wahl == "3":
-        exportiere_modell_fuer_deployment(model, tokenizer)
-    elif wahl == "4":
-        teste_vordefinierte_fragen(model, tokenizer)
-        starte_chat_session(model, tokenizer)
+    if choice == "1":
+        start_chat_session(model, tokenizer)
+    elif choice == "2":
+        run_test_questions(model, tokenizer)
+    elif choice == "3":
+        export_model(model, tokenizer)
+    elif choice == "4":
+        run_test_questions(model, tokenizer)
+        start_chat_session(model, tokenizer)
     else:
-        print("❌ Ungültige Wahl!")
+        print("❌ Invalid choice")
 
 
 if __name__ == "__main__":

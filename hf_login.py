@@ -1,85 +1,88 @@
 """
-hf_login.py - HuggingFace Login & Model Upload
+hf_login.py - Hugging Face login and model upload
 
-Mit diesem Script kannst du dich bei HuggingFace anmelden
-und dein trainiertes Modell uploaden.
+Log in to Hugging Face and upload the trained LoRA adapters.
+
+Usage:
+    python hf_login.py          # log in only
+    python hf_login.py upload   # log in, then upload
+
+If HF_TOKEN is set in the environment or in a .env file, it is used instead of
+the interactive login.
 """
 
+import sys
 from pathlib import Path
 
-from huggingface_hub import HfApi, login
+from dotenv import load_dotenv
+from huggingface_hub import HfApi, get_token, login
 
 
 def login_hf():
-    """Login zu HuggingFace"""
+    """Log in to Hugging Face interactively."""
     print("=" * 70)
-    print("🤗 HuggingFace Login")
+    print("🤗 Hugging Face login")
     print("=" * 70)
-    print("\n1. Gehe zu https://huggingface.co/settings/tokens")
-    print("2. Klicke 'New token'")
-    print("3. Gib einen Namen ein (z.B. 'legionaer-training')")
-    print("4. Wähle 'Write' Rechte")
-    print("5. Kopiere den Token\n")
+    print("\n1. Go to https://huggingface.co/settings/tokens")
+    print("2. Click 'Create new token'")
+    print("3. Enter a name (e.g. 'legionaer-training')")
+    print("4. Choose 'Write' access")
+    print("5. Copy the token\n")
 
     try:
-        login()  # Interaktive Login
-        print("\n✅ Erfolgreich angemeldet!")
+        login()
+        print("\n✅ Logged in")
     except Exception as e:
-        print(f"\n❌ Login fehlgeschlagen: {e}")
+        print(f"\n❌ Login failed: {e}")
 
 
-def upload_model_zu_hf(
-    modell_pfad: str = "./models/legionaer-final", repo_name: str = "legionaer-scrum-master", repo_type: str = "model"
+def upload_model_to_hf(
+    model_path: str = "./models/legionaer-final",
+    repo_name: str = "legionaer-scrum-master",
+    repo_type: str = "model",
 ):
     """
-    Upload dein trainiertes Modell zu HuggingFace Hub.
+    Upload the trained adapters to the Hugging Face Hub.
 
     Args:
-        modell_pfad: Lokaler Pfad zum Modell
-        repo_name: Name des Repos auf HF (z.B. "legionaer-scrum-master")
-        repo_type: "model", "dataset", oder "space"
+        model_path: Local folder with the adapters
+        repo_name: Name of the repository on the Hub
+        repo_type: "model", "dataset" or "space"
     """
     print("=" * 70)
-    print(f"📦 Upload Modell zu HuggingFace: {repo_name}")
+    print(f"📦 Uploading model to Hugging Face: {repo_name}")
     print("=" * 70)
 
-    # Prüfe ob Modell existiert
-    modell_path = Path(modell_pfad)
-    if not modell_path.exists():
-        print(f"❌ Modell-Ordner nicht gefunden: {modell_pfad}")
+    if not Path(model_path).exists():
+        print(f"❌ Model folder not found: {model_path}")
         return False
 
     try:
         api = HfApi()
 
-        # Token von credentials auslesen
-        from huggingface_hub import get_token
-
         token = get_token()
-
         if not token:
-            print("❌ HuggingFace Token nicht gefunden. Bitte erst login() ausführen.")
+            print("❌ No Hugging Face token found. Log in first.")
             return False
 
-        # Repo-ID zusammensetzen (username/repo-name)
         repo_id = f"{api.whoami()['name']}/{repo_name}"
 
-        print(f"\n🚀 Uploade zu: {repo_id}")
-        print(f"   Modell-Pfad: {modell_pfad}")
+        print(f"\n🚀 Uploading to: {repo_id}")
+        print(f"   Model path: {model_path}")
 
-        # Upload
+        api.create_repo(repo_id=repo_id, repo_type=repo_type, exist_ok=True)
         api.upload_folder(
-            folder_path=modell_pfad,
+            folder_path=model_path,
             repo_id=repo_id,
             repo_type=repo_type,
             commit_message="Upload trained LoRA adapter",
             token=token,
         )
 
-        print("\n✅ Upload erfolgreich!")
+        print("\n✅ Upload done")
         print(f"   Model URL: https://huggingface.co/{repo_id}")
-        print("\n💻 So nutzt jemand das Modell:")
-        print("   from transformers import AutoTokenizer, AutoModelForCausalLM")
+        print("\n💻 How to use it:")
+        print("   from transformers import AutoModelForCausalLM")
         print("   from peft import PeftModel")
         print("   base_model_id = 'mistralai/Mistral-7B-Instruct-v0.3'")
         print(f"   lora_model_id = '{repo_id}'")
@@ -89,17 +92,15 @@ def upload_model_zu_hf(
         return True
 
     except Exception as e:
-        print(f"\n❌ Upload fehlgeschlagen: {e}")
+        print(f"\n❌ Upload failed: {e}")
         return False
 
 
 if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) > 1 and sys.argv[1] == "upload":
-        # Nutze: python hf_login.py upload
-        login_hf()
-        upload_model_zu_hf()
+    load_dotenv()
+    if get_token():
+        print("✅ Using the Hugging Face token from HF_TOKEN or an earlier login")
     else:
-        # Standard: nur login
         login_hf()
+    if len(sys.argv) > 1 and sys.argv[1] == "upload":
+        upload_model_to_hf()
