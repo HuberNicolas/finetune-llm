@@ -1,58 +1,48 @@
-# Makefile für Legionär Scrum Master Projekt
-# Nutze: make <target>
+# Makefile for the legionary Scrum Master project
+# Usage: make <target>
 
-.PHONY: help setup install dataset train inference test upload clean
+.PHONY: help setup install dataset train inference lint upload all clean
 
 help:
-	@echo "🦅 Legionär Scrum Master - Make Targets"
-	@echo "======================================="
+	@echo "🦅 Legionary Scrum Master - make targets"
+	@echo "========================================"
 	@echo ""
-	@echo "Verfügbare Befehle:"
-	@echo "  make setup        - Setup: Verzeichnisse + .env"
-	@echo "  make install      - Installiere Abhängigkeiten mit Pixi"
-	@echo "  make dataset      - Generiere Trainingsdaten"
-	@echo "  make train        - Starte Training"
-	@echo "  make inference    - Starte Inference/Testing"
-	@echo "  make test         - Führe Tests durch"
-	@echo "  make upload       - Upload zu HuggingFace Hub"
-	@echo "  make all          - Alles der Reihe nach (dataset → train → inference)"
-	@echo "  make clean        - Lösche generierte Dateien"
+	@echo "  make setup        - create folders and .env"
+	@echo "  make install      - install the dependencies with Pixi"
+	@echo "  make dataset      - write the training data"
+	@echo "  make train        - train the LoRA adapters"
+	@echo "  make inference    - chat with or test the trained model"
+	@echo "  make lint         - check and format the code with Ruff"
+	@echo "  make upload       - upload the adapters to the Hugging Face Hub"
+	@echo "  make all          - setup, dataset, train and inference in a row"
+	@echo "  make clean        - delete caches"
 	@echo ""
 
 setup:
-	@echo "🔧 Starte Setup..."
-	python setup.py
+	python scripts/setup_project.py
 
 install:
-	@echo "📦 Installiere mit Pixi..."
 	pixi install
 
 dataset:
-	@echo "📚 Generiere Trainingsdaten..."
 	python src/01_dataset.py
 
 train:
-	@echo "🏋️  Starte Training..."
 	python src/02_train.py
 
 inference:
-	@echo "🦅 Starte Inferenz..."
 	python src/03_inference.py
 
-test:
-	@echo "✅ Führe Tests durch..."
-	@echo "   (Noch keine Tests implementiert)"
+lint:
+	uvx ruff check .
+	uvx ruff format --check .
 
 upload:
-	@echo "📤 Upload zu HuggingFace..."
 	python hf_login.py upload
 
 all: setup dataset train inference
-	@echo "✅ Alle Schritte abgeschlossen!"
 
 clean:
-	@echo "🧹 Cleanup..."
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete
-	rm -rf .ipynb_checkpoints
-	@echo "✅ Cleanup abgeschlossen!"
+	rm -rf .ipynb_checkpoints .ruff_cache
