@@ -1,0 +1,27 @@
+name: Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+
+      - name: Ruff
+        run: |
+          uvx ruff check .
+          uvx ruff format --check .
+
+      - name: Compile the scripts
+        run: uv run --no-project --python 3.11 python -m py_compile src/*.py hf_login.py scripts/*.py
+
+      - name: Check config.yaml and the training data
+        run: |
+          uv run --no-project --python 3.11 --with pyyaml python -c "import yaml; yaml.safe_load(open('config.yaml'))"
+          uv run --no-project --python 3.11 python src/01_dataset.py
+          git diff --exit-code data/
