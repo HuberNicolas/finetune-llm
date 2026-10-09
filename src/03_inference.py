@@ -136,7 +136,7 @@ def generiere_antwort(
         Die römische Antwort!
     """
     # Formatiere die Frage im Mistral-Format
-    prompt = f"""<s>[INST] {frage} [/INST]"""
+    prompt = f"""[INST] {frage} [/INST]"""
 
     # Tokenisiere
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
@@ -153,11 +153,9 @@ def generiere_antwort(
             pad_token_id=tokenizer.eos_token_id,
         )
 
-    # Dekodiere die Ausgabe
-    antwort = tokenizer.decode(outputs[0], skip_special_tokens=True)
-
-    # Entferne den Prompt aus der Antwort
-    antwort = antwort.replace(prompt, "").strip()
+    # Dekodiere nur die neu generierten Tokens (ohne den Prompt)
+    neue_tokens = outputs[0][inputs["input_ids"].shape[1]:]
+    antwort = tokenizer.decode(neue_tokens, skip_special_tokens=True).strip()
 
     return antwort
 

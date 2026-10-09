@@ -275,7 +275,7 @@ def lade_datensatz(datensatz_pfad: str = "data/legionaer_training_data.json") ->
     # Formatiere als "text" für SFTTrainer mit Progress Bar
     formatted_data = []
     for item in tqdm(data, desc="Formatiere Datensatz", unit="item"):
-        text = f"""<s>[INST] {item['instruction']} [/INST] {item['output']} </s>"""
+        text = f"""[INST] {item['instruction']} [/INST] {item['output']} </s>"""
         formatted_data.append({"text": text})
 
     # Konvertiere zu HuggingFace Dataset
@@ -333,17 +333,17 @@ def starte_training(
         logging_steps=training_config["logging_steps"],
         save_total_limit=training_config["save_total_limit"],
         report_to=[],  # Keine W&B oder mlflow Reporting (optional)
-        max_seq_length=512,  # Max Sequenz-Länge
+        max_length=512,  # Max Sequenz-Länge
+        packing=True,  # Packe kurze Beispiele zusammen = schneller
         optim="paged_adamw_32bit",  # Memory-effizient
     )
 
     # Erstelle Trainer
     trainer = SFTTrainer(
         model=model,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         train_dataset=datensatz,
         args=training_args,
-        packing=True,  # Packe kurze Beispiele zusammen = schneller
     )
 
     # Los geht's!
