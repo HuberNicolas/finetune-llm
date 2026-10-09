@@ -13,6 +13,7 @@ import logging
 from pathlib import Path
 
 import torch
+import yaml
 from peft import PeftModel
 from transformers import (
     AutoModelForCausalLM,
@@ -27,11 +28,19 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ============================================================================
-# CONFIGURATION
+# CONFIGURATION (config.yaml in the repository root)
 # ============================================================================
 
-MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.3"
-LORA_MODEL_PATH = "./models/legionaer-final"
+CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
+
+
+def load_config(path: Path = CONFIG_PATH) -> dict:
+    """Read the settings from config.yaml."""
+    with open(path, encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+CONFIG = load_config()
 
 # ============================================================================
 # LOAD MODEL WITH LORA ADAPTERS
@@ -39,9 +48,9 @@ LORA_MODEL_PATH = "./models/legionaer-final"
 
 
 def load_model_with_lora(
-    base_model_id: str = MODEL_ID,
-    lora_model_path: str = LORA_MODEL_PATH,
-    use_4bit: bool = True,
+    base_model_id: str = CONFIG["model"]["base_model_id"],
+    lora_model_path: str = CONFIG["paths"]["lora_adapter"],
+    use_4bit: bool = CONFIG["quantization"]["use_4bit"],
 ) -> tuple:
     """
     Load the base model and put the LoRA adapters on top.
@@ -70,7 +79,7 @@ def load_model_with_lora(
     if use_4bit:
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
+            bnb_4bit_quant_type=CONFIG["quantization"]["quant_type"],
             bnb_4bit_compute_dtype=torch.float16,
         )
         model = AutoModelForCausalLM.from_pretrained(
@@ -104,9 +113,9 @@ def generate_answer(
     model,
     tokenizer,
     question: str,
-    max_new_tokens: int = 256,
-    temperature: float = 0.7,
-    top_p: float = 0.9,
+    max_new_tokens: int = CONFIG["inference"]["max_new_tokens"],
+    temperature: float = CONFIG["inference"]["temperature"],
+    top_p: float = CONFIG["inference"]["top_p"],
 ) -> str:
     """
     Generate the legionary's answer to a question.
@@ -215,7 +224,7 @@ def run_test_questions(model, tokenizer):
 # ============================================================================
 
 
-def export_model(model, tokenizer, output_dir: str = "./models/legionaer-deployed"):
+def export_model(model, tokenizer, output_dir: str = CONFIG["paths"]["export"]):
     """
     Save the LoRA adapters together with the tokenizer, ready to upload to the
     Hugging Face Hub. The base model is not included; users load it from the

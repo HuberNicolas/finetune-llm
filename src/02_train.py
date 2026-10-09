@@ -20,6 +20,7 @@ from pathlib import Path
 
 import psutil
 import torch
+import yaml
 from datasets import Dataset
 from peft import LoraConfig, get_peft_model
 from tqdm import tqdm
@@ -65,41 +66,17 @@ def show_system_info():
 
 
 # ============================================================================
-# CONFIGURATION
+# CONFIGURATION (config.yaml in the repository root)
 # ============================================================================
 
-# Base model on Hugging Face
-MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.3"
+CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
 
-# LoRA hyperparameters - how much capacity the adapters get
-LORA_CONFIG = {
-    "r": 16,  # rank: width of the adapter matrices
-    "lora_alpha": 32,  # scaling factor (usually 2x r)
-    "target_modules": [  # layers that get adapters
-        "q_proj",  # query projection (attention)
-        "v_proj",  # value projection (attention)
-    ],
-    "lora_dropout": 0.05,  # dropout against overfitting
-    "bias": "none",  # do not train biases
-    "task_type": "CAUSAL_LM",  # causal language modelling = predict the next token
-}
 
-# Training hyperparameters
-TRAINING_CONFIG = {
-    "output_dir": "./models/legionaer-sft",  # checkpoints
-    "num_train_epochs": 3,  # passes over the data
-    "per_device_train_batch_size": 4,  # examples per step on the GPU
-    "gradient_accumulation_steps": 2,  # effective batch size = 4 * 2 = 8
-    "learning_rate": 2e-4,
-    "warmup_ratio": 0.1,  # warm up during the first 10% of the steps
-    "weight_decay": 0.01,  # L2 regularisation
-    "save_steps": 100,  # checkpoint every 100 steps
-    "logging_steps": 10,  # log every 10 steps
-    "save_total_limit": 3,  # keep at most 3 checkpoints
-}
+def load_config(path: Path = CONFIG_PATH) -> dict:
+    """Read the settings from config.yaml."""
+    with open(path, encoding="utf-8") as f:
+        return yaml.safe_load(f)
 
-DATASET_PATH = "data/legionaer_training_data.json"
-FINAL_MODEL_DIR = "./models/legionaer-final"
 
 # ============================================================================
 # GPU CHECK
@@ -132,10 +109,7 @@ def check_gpu():
 # ============================================================================
 
 
-def load_model_and_tokenizer(
-    model_id: str = MODEL_ID,
-    use_4bit: bool = True,
-) -> tuple:
+def load_model_and_tokenizer(model_id: str, quant_config: dict) -> tuple:
     """Load the Mistral model, optionally quantised to 4 bit."""
     print("\n" + "=" * 70)
     print("🚀 LOADING MODEL")
@@ -149,14 +123,14 @@ def load_model_and_tokenizer(
             pbar.update(1)
         logger.info(f"✅ Tokenizer loaded. Vocabulary size: {tokenizer.vocab_size}")
 
-        if use_4bit:
+        if quant_config["use_4bit"]:
             logger.info("2️⃣  Configuring 4-bit quantisation...")
             with tqdm(total=1, desc="Quantisation", unit="step") as pbar:
                 bnb_config = BitsAndBytesConfig(
                     load_in_4bit=True,
-                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_quant_type=quant_config["quant_type"],
                     bnb_4bit_compute_dtype=torch.float16,
-                    bnb_4bit_use_double_quant=True,
+                    bnb_4bit_use_double_quant=quant_config["double_quant"],
                 )
                 pbar.update(1)
             logger.info("✅ 4-bit config created (~14 GB → ~4 GB)")
@@ -208,7 +182,7 @@ def add_lora_adapters(model, lora_config: dict):
 
     Args:
         model: The loaded model
-        lora_config: LoRA settings
+        lora_config: The lora section of config.yaml
 
     Returns:
         The model with LoRA adapters
@@ -216,12 +190,12 @@ def add_lora_adapters(model, lora_config: dict):
     logger.info("🎯 Adding LoRA adapters...")
 
     peft_config = LoraConfig(
-        r=lora_config["r"],
-        lora_alpha=lora_config["lora_alpha"],
-        lora_dropout=lora_config["lora_dropout"],
-        bias=lora_config["bias"],
+        r=lora_config["rank"],
+        lora_alpha=lora_config["alpha"],
+        lora_dropout=lora_config["dropout"],
         target_modules=lora_config["target_modules"],
-        task_type=lora_config["task_type"],
+        bias="none",  # do not train biases
+        task_type="CAUSAL_LM",  # causal language modelling = predict the next token
     )
 
     model = get_peft_model(model, peft_config)
@@ -242,7 +216,7 @@ def add_lora_adapters(model, lora_config: dict):
 # ============================================================================
 
 
-def load_dataset(dataset_path: str = DATASET_PATH) -> Dataset:
+def load_dataset(dataset_path: str) -> Dataset:
     """Load the training examples and format them in the Mistral prompt format."""
     print("\n" + "=" * 70)
     print("📂 LOADING DATASET")
@@ -280,6 +254,7 @@ def train(
     tokenizer,
     dataset: Dataset,
     training_config: dict,
+    output_dir: str,
 ):
     """
     Train the model with TRL's SFTTrainer.
@@ -295,17 +270,17 @@ def train(
         model: The model with LoRA adapters
         tokenizer: The tokenizer
         dataset: The training dataset
-        training_config: Hyperparameters, including output_dir
+        training_config: The training section of config.yaml
+        output_dir: Folder for the checkpoints
     """
     logger.info("🏋️ Starting training...")
 
-    output_dir = training_config["output_dir"]
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     training_args = SFTConfig(
         output_dir=output_dir,
-        num_train_epochs=training_config["num_train_epochs"],
-        per_device_train_batch_size=training_config["per_device_train_batch_size"],
+        num_train_epochs=training_config["num_epochs"],
+        per_device_train_batch_size=training_config["batch_size"],
         gradient_accumulation_steps=training_config["gradient_accumulation_steps"],
         learning_rate=training_config["learning_rate"],
         warmup_ratio=training_config["warmup_ratio"],
@@ -315,9 +290,9 @@ def train(
         logging_steps=training_config["logging_steps"],
         save_total_limit=training_config["save_total_limit"],
         report_to=[],  # no W&B or MLflow reporting
-        max_length=512,  # maximum sequence length
-        packing=True,  # pack short examples together = faster
-        optim="paged_adamw_32bit",  # memory-efficient optimiser
+        max_length=training_config["max_seq_length"],
+        packing=training_config["packing"],
+        optim=training_config["optimizer"],
     )
 
     trainer = SFTTrainer(
@@ -363,6 +338,9 @@ def main() -> int:
     print("🦅 LEGIONARY SCRUM MASTER - FINE-TUNING")
     print("=" * 70)
 
+    config = load_config()
+    paths = config["paths"]
+
     try:
         # 1. System info and GPU check
         show_system_info()
@@ -371,37 +349,37 @@ def main() -> int:
             return 1
 
         # 2. Make sure the dataset exists
-        if not Path(DATASET_PATH).exists():
-            logger.error(f"❌ Dataset not found: {DATASET_PATH}")
+        if not Path(paths["dataset"]).exists():
+            logger.error(f"❌ Dataset not found: {paths['dataset']}")
             logger.info("   Run src/01_dataset.py first")
             return 1
 
         # 3. Load the model
-        model, tokenizer = load_model_and_tokenizer(use_4bit=True)
+        model, tokenizer = load_model_and_tokenizer(config["model"]["base_model_id"], config["quantization"])
 
         # 4. Add LoRA adapters
-        model = add_lora_adapters(model, LORA_CONFIG)
+        model = add_lora_adapters(model, config["lora"])
 
         # 5. Load the dataset
-        dataset = load_dataset(DATASET_PATH)
+        dataset = load_dataset(paths["dataset"])
 
         # 6. Train
-        train(model, tokenizer, dataset, TRAINING_CONFIG)
+        train(model, tokenizer, dataset, config["training"], paths["checkpoints"])
 
         # 7. Save the final LoRA adapters
         print("\n" + "=" * 70)
         print("💾 SAVING FINAL ADAPTERS")
         print("=" * 70)
-        Path(FINAL_MODEL_DIR).mkdir(parents=True, exist_ok=True)
+        Path(paths["lora_adapter"]).mkdir(parents=True, exist_ok=True)
 
         with tqdm(total=1, desc="Saving model", unit="step") as pbar:
-            model.save_pretrained(FINAL_MODEL_DIR)
+            model.save_pretrained(paths["lora_adapter"])
             pbar.update(1)
 
         print("\n" + "=" * 70)
         print("🎉 DONE!")
         print("=" * 70)
-        print(f"✅ Trained adapters: {FINAL_MODEL_DIR}/")
+        print(f"✅ Trained adapters: {paths['lora_adapter']}/")
         print("✅ Next step: python src/03_inference.py")
         print("=" * 70 + "\n")
 
