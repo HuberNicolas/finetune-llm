@@ -10,5 +10,5 @@
 | Download of the base model fails | The model is ~15 GB. Check the internet connection and the free disk space; the download resumes when you start again. |
 | `No Hugging Face token found` | Run `hf auth login` or set `HF_TOKEN` in `.env`. |
 | Upload fails with 401/403 | The token needs **Write** access. |
-| Answers are in the normal assistant style | 17 examples are very few. Add more examples or train for more epochs, and compare with the base model. |
+| Answers are in the normal assistant style | Check the log: are there enough optimiser steps (with `packing: true` there are very few)? Add more examples or train for more epochs, and compare with the base model. |
 | Package installation on Colab times out | Run the cell again. |

@@ -19,7 +19,7 @@ flowchart LR
 1. **Data**: `01_dataset.py` writes the examples from its `TRAINING_DATA` list to JSON.
 2. **Load**: the base model is loaded with bitsandbytes in 4 bit (NF4, double quantisation), so its ~14 GB of
    float16 weights fit into a few GB of VRAM.
-3. **Adapt**: peft adds LoRA adapters next to the frozen query and value projections of every attention layer.
+3. **Adapt**: peft adds LoRA adapters next to the frozen query, key, value and output projections of every attention layer.
    Only the adapters are trained, well under 1 % of the parameters.
 4. **Train**: TRL's `SFTTrainer` runs supervised fine-tuning on the formatted examples. Short examples are packed into
    longer sequences.
@@ -70,17 +70,17 @@ All settings are in [`config.yaml`](../config.yaml). Paths are relative to the r
 | `lora` | `rank` | `16` | Width of the adapter matrices |
 | | `alpha` | `32` | Scaling factor, usually 2 × rank |
 | | `dropout` | `0.05` | Dropout on the adapters |
-| | `target_modules` | `[q_proj, v_proj]` | Layers that get adapters |
-| `training` | `num_epochs` | `3` | Passes over the data |
+| | `target_modules` | `[q_proj, k_proj, v_proj, o_proj]` | Layers that get adapters |
+| `training` | `num_epochs` | `5` | Passes over the data |
 | | `batch_size` | `4` | Examples per GPU step |
-| | `gradient_accumulation_steps` | `2` | Effective batch size = 4 × 2 = 8 |
+| | `gradient_accumulation_steps` | `1` | Effective batch size = 4 × 1 = 4 |
 | | `learning_rate` | `0.0002` | |
 | | `warmup_ratio` | `0.1` | Warm-up over the first 10 % of the steps |
 | | `weight_decay` | `0.01` | |
 | | `max_seq_length` | `512` | Maximum tokens per sequence |
-| | `packing` | `true` | Pack short examples into one sequence |
+| | `packing` | `false` | Pack short examples into one sequence (fewer, longer steps) |
 | | `optimizer` | `paged_adamw_32bit` | Paged AdamW from bitsandbytes (saves memory) |
-| | `save_steps`, `logging_steps`, `save_total_limit` | `100`, `10`, `3` | Checkpoints and logging |
+| | `save_steps`, `logging_steps`, `save_total_limit` | `100`, `5`, `3` | Checkpoints and logging |
 | `inference` | `max_new_tokens` | `256` | Maximum answer length |
 | | `temperature` | `0.7` | 0 = deterministic, 1 = creative |
 | | `top_p` | `0.9` | Nucleus sampling |
@@ -88,9 +88,10 @@ All settings are in [`config.yaml`](../config.yaml). Paths are relative to the r
 The base model must use the Mistral `[INST]` prompt format; for other model families, change the format in
 `load_dataset()` (training) and `generate_answer()` (inference) as well.
 
-With 17 examples, packing and an effective batch size of 8, an epoch is only a few optimiser steps, so
-`save_steps: 100` is never reached and no intermediate checkpoints are written; the final adapters are saved after
-training.
+With 119 examples and a batch size of 4, an epoch is 30 optimiser steps, about 150 in total; a checkpoint is written
+after step 100 and the final adapters after training. Keep an eye on the number of steps when you change the data:
+with 17 examples, packing and an effective batch size of 8, an earlier version made only about three optimiser steps
+in total and the model did not pick up the persona at all.
 
 ## Train your own persona
 

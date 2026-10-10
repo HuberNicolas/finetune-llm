@@ -21,20 +21,20 @@ lora:
   rank: 16                  # width of the adapter matrices
   alpha: 32                 # scaling factor, usually 2x rank
   dropout: 0.05             # against overfitting
-  target_modules: ["q_proj", "v_proj"]   # attention query and value projections
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]   # all attention projections
 
 training:
-  num_epochs: 3
+  num_epochs: 5
   batch_size: 4             # examples per GPU step
-  gradient_accumulation_steps: 2         # effective batch size = 4 * 2 = 8
+  gradient_accumulation_steps: 1         # effective batch size = 4 * 1 = 4
   learning_rate: 0.0002
   warmup_ratio: 0.1         # warm up during the first 10% of the steps
   weight_decay: 0.01        # L2 regularisation
   max_seq_length: 512
-  packing: true             # pack short examples into one sequence
+  packing: false            # true packs short examples together, but then there are far fewer steps
   optimizer: "paged_adamw_32bit"
   save_steps: 100
-  logging_steps: 10
+  logging_steps: 5
   save_total_limit: 3
 
 inference:
